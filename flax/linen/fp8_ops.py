@@ -36,8 +36,12 @@ except (ModuleNotFoundError, ImportError):
   CAN_USE_EARRAY = False
 
 from flax.linen import initializers, module
+from flax.core import meta as flax_meta
 
 OVERWRITE_WITH_GRADIENT = '_overwrite_with_gradient'
+
+def _local_max_abs(x):
+  return jnp.max(jnp.abs(x))
 
 # Define a custom dtype for FP8 meta params.
 class Fp8MetaTyRules:
@@ -159,7 +163,29 @@ def compute_scale(amax, scale, fp8_max, margin=0):
 
 
 def compute_amax_history(x, amax_history):
-  amax_update = jnp.max(jnp.abs(x)).astype(amax_history.dtype)
+  mesh = flax_meta.get_global_mesh()
+  if mesh is not None and not mesh.empty:
+    """
+    Uses shard_map when a mesh is available to ensure the max operation
+    is local (per-device) and doesn't trigger cross-device all-reduce.
+    This is important for PP+FSDP configurations where we don't want
+    intra-stage FSDP communication for FP8 scale computation.
+    """
+    from jax.experimental.shard_map import shard_map
+    from jax.sharding import PartitionSpec as P
+    
+    amax_update = shard_map(
+      _local_max_abs,
+      mesh=mesh,
+      in_specs=P(),       # Each device processes its local shard
+      out_specs=P(),      # Each device outputs its local result
+      check_rep=False,    # Allow different values on different devices
+      auto=frozenset(mesh.axis_names),
+    )(x)
+    amax_update = amax_update.astype(amax_history.dtype)
+  else:
+    amax_update = jnp.max(jnp.abs(x)).astype(amax_history.dtype)
+  
   new_history = jnp.roll(amax_history, shift=-1, axis=0).at[0].set(amax_update)
   return new_history
 
