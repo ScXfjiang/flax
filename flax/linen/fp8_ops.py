@@ -161,32 +161,19 @@ def compute_scale(amax, scale, fp8_max, margin=0):
 
   return 1.0 / sf
 
-
 def compute_amax_history(x, amax_history):
-  mesh = flax_meta.get_global_mesh()
-  if mesh is not None and not mesh.empty:
-    """
-    Uses shard_map when a mesh is available to ensure the max operation
-    is local (per-device) and doesn't trigger cross-device all-reduce.
-    This is important for PP+FSDP configurations where we don't want
-    intra-stage FSDP communication for FP8 scale computation.
-    """
-    from jax.experimental.shard_map import shard_map
-    from jax.sharding import PartitionSpec as P
-    
-    amax_update = shard_map(
-      _local_max_abs,
-      mesh=mesh,
-      in_specs=P(),       # Each device processes its local shard
-      out_specs=P(),      # Each device outputs its local result
-      check_rep=False,    # Allow different values on different devices
-      auto=frozenset(mesh.axis_names),
-    )(x)
-    amax_update = amax_update.astype(amax_history.dtype)
-  else:
-    amax_update = jnp.max(jnp.abs(x)).astype(amax_history.dtype)
+  print("*" * 100)
+  print("Entering compute_amax_history()")
+  print("*" * 100)
+  
+  jax.debug.inspect_array_sharding(x, callback=lambda s: print(f"[FP8 DEBUG] x sharding: {s}"))
+  amax_update = jnp.max(jnp.abs(x)).astype(amax_history.dtype)
+  jax.debug.inspect_array_sharding(amax_update, callback=lambda s: print(f"[FP8 DEBUG] amax_update (after jnp.max): {s}"))
   
   new_history = jnp.roll(amax_history, shift=-1, axis=0).at[0].set(amax_update)
+  print("*" * 100)
+  print("Exiting compute_amax_history()")
+  print("*" * 100)
   return new_history
 
 
