@@ -166,9 +166,11 @@ def compute_amax_history(x, amax_history):
   print("Entering compute_amax_history()")
   print("*" * 100)
   
-  jax.debug.inspect_array_sharding(x, callback=lambda s: print(f"[FP8 DEBUG] x sharding: {s}"))
+  print(f"[FP8 DEBUG, TRACE] x.shape = {x.shape}")
+  jax.debug.inspect_array_sharding(x, callback=lambda s: print(f"[FP8 DEBUG, COMPILATION] x sharding: {s}"))
   amax_update = jnp.max(jnp.abs(x)).astype(amax_history.dtype)
-  jax.debug.inspect_array_sharding(amax_update, callback=lambda s: print(f"[FP8 DEBUG] amax_update (after jnp.max): {s}"))
+  print(f"[FP8 DEBUG, TRACE] amax_update.shape = {amax_update.shape}")
+  jax.debug.inspect_array_sharding(amax_update, callback=lambda s: print(f"[FP8 DEBUG, COMPILATION] amax_update sharding: {s}"))
   
   new_history = jnp.roll(amax_history, shift=-1, axis=0).at[0].set(amax_update)
   print("*" * 100)
